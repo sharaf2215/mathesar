@@ -54,7 +54,6 @@ nosetests.xml
 coverage.xml
 *.cover
 *.py,cover
-msar/
 .hypothesis/
 .pytest_cache/
 cover/
