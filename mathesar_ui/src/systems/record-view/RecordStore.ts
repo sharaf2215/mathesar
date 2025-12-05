@@ -1,3 +1,4 @@
+import { normalizeColumnId } from '@mathesar/utils/columnUtils';
 import { type Writable, writable } from 'svelte/store';
 
 import type { RequestStatus } from '@mathesar/api/rest/utils/requestUtils';
@@ -44,11 +45,15 @@ export default class RecordStore {
     );
     void this.fetch();
   }
-
   private updateSelfWithApiResponseData(response: RecordsResponse): void {
     const result = response.results[0];
     this.fieldValues.reconstruct(
-      Object.entries(result).map(([k, v]) => [parseInt(k, 10), v]),
+      Object.entries(result)
+        .map(([k, v]) => {
+          const id = normalizeColumnId(k);
+          return (id !== undefined ? [id, v] : undefined) as [number, unknown] | undefined;
+        })
+        .filter((entry): entry is [number, unknown] => entry !== undefined),
     );
     this.summary.set(response.record_summaries?.[this.recordPk] ?? '');
     if (response.linked_record_summaries) {

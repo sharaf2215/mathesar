@@ -10,6 +10,7 @@
     tableInspectorColumnPropertiesVisible,
     tableInspectorColumnRecordSummaryVisible,
   } from '@mathesar/stores/localStorage';
+  import { normalizeColumnId } from '@mathesar/utils/columnUtils';
   import { getTabularDataStoreFromContext } from '@mathesar/stores/table-data';
   import { currentTablesData } from '@mathesar/stores/tables';
   import FkRecordSummaryConfig from '@mathesar/systems/table-view/table-inspector/record-summary/FkRecordSummaryConfig.svelte';
@@ -39,10 +40,12 @@
       // parsing by either making the selection system generic over the id type
       // (which would be a pain, ergonomically), or by using string-based ids
       // for columns in the table page too (which would require refactoring).
-      const parsedId = parseInt(id, 10);
-      const column = $processedColumns.get(parsedId);
-      if (column !== undefined) {
-        columns.push(column);
+      const parsedId = normalizeColumnId(id);
+      if (parsedId !== undefined) {
+        const column = $processedColumns.get(parsedId);
+        if (column !== undefined) {
+          columns.push(column);
+        }
       }
     }
     return columns;

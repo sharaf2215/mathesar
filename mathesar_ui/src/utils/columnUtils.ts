@@ -14,6 +14,35 @@ import type { IconProps } from '@mathesar-component-library/types';
 
 import { makeSingular } from './languageUtils';
 
+/**
+ * Safely converts a column ID string to a number.
+ * Handles null, empty string, and non-numeric values gracefully.
+ * 
+ * @param columnId - The column ID as a string, null, or undefined
+ * @returns The column ID as a number, or undefined if the input is null, empty, or non-numeric
+ */
+export function normalizeColumnId(columnId: string | null | undefined): number | undefined {
+  // Handle null or undefined
+  if (columnId == null) {
+    return undefined;
+  }
+  
+  // Handle empty string
+  if (columnId === '') {
+    return undefined;
+  }
+  
+  // Convert to number
+  const numericId = Number(columnId);
+  
+  // Return undefined if the result is NaN
+  if (Number.isNaN(numericId)) {
+    return undefined;
+  }
+  
+  return numericId;
+}
+
 export function getColumnIconProps(column: {
   type: RawColumnWithMetadata['type'];
   type_options: RawColumnWithMetadata['type_options'];

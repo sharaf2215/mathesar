@@ -1,3 +1,4 @@
+import { normalizeColumnId } from '@mathesar/utils/columnUtils';
 import { execPipe, filter, map, some } from 'iter-tools';
 import { get } from 'svelte/store';
 
@@ -16,7 +17,7 @@ export function* setNull(p: { tabularData: TabularData; cellIds: string[] }) {
     icon,
     label: component(SetToNull, { cellCount: 1 }),
     disabled: true,
-    onClick: () => {},
+    onClick: () => { },
   });
 
   const canUpdateRecords = get(p.tabularData.canUpdateRecords);
@@ -33,7 +34,10 @@ export function* setNull(p: { tabularData: TabularData; cellIds: string[] }) {
 
   const someColumnRefuses = execPipe(
     columnIds,
-    map((columnId) => columnsInTable.get(parseInt(columnId, 10))),
+    map((columnId) => {
+      const numericId = normalizeColumnId(columnId);
+      return numericId !== undefined ? columnsInTable.get(numericId) : undefined;
+    }),
     filter((column) => !!column),
     some((column) => !column?.isEditable || !column?.column.nullable),
   );

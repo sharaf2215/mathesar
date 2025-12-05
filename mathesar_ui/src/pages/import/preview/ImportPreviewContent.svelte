@@ -1,4 +1,4 @@
-<script lang="ts">
+  import { normalizeColumnId } from '@mathesar/utils/columnUtils';
   import { _ } from 'svelte-i18n';
   import { router } from 'tinro';
 
@@ -218,7 +218,8 @@
         columnPatchSpecs: finalizeColumns(columns, columnPropertiesMap),
         columnsToDelete: Object.entries(columnPropertiesMap)
           .filter(([, { selected }]) => !selected)
-          .map(([id]) => parseInt(id, 10)),
+          .map(([id]) => normalizeColumnId(id))
+          .filter((id): id is number => id !== undefined),
       });
       router.goto(
         getTablePageUrl(schema.database.id, schema.oid, table.oid),

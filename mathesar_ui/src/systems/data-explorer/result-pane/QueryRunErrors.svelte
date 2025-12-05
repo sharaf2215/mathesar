@@ -7,6 +7,7 @@
   import { getExplorationPageUrl } from '@mathesar/routes/urls';
   import { databasesStore } from '@mathesar/stores/databases';
   import { currentSchema } from '@mathesar/stores/schemas';
+  import { normalizeColumnId } from '@mathesar/utils/columnUtils';
   import { Button, hasProperty } from '@mathesar-component-library';
 
   import QueryManager from '../QueryManager';
@@ -34,8 +35,8 @@
     {#if errors instanceof ApiMultiError}
       {#each errors.errors as apierror}
         <ul>
-          {#if apierror.code === QUERY_CONTAINS_DELETED_COLUMN && hasProperty(apierror.detail, 'column_id')}
-            {@const columnId = Number(apierror.detail.column_id)}
+          {@const columnId = hasProperty(apierror.detail, 'column_id') ? normalizeColumnId(apierror.detail.column_id) : undefined}
+          {#if apierror.code === QUERY_CONTAINS_DELETED_COLUMN && columnId !== undefined}
             <li class="error">
               <p class="strong">
                 {$_('some_columns_in_query_missing')}

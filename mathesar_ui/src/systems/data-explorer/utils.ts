@@ -1,3 +1,4 @@
+import { normalizeColumnId } from '@mathesar/utils/columnUtils';
 import { api } from '@mathesar/api/rpc';
 import type { RawColumnWithMetadata } from '@mathesar/api/rpc/columns';
 import type {
@@ -40,7 +41,7 @@ import type { QueryModel } from './QueryModel';
 
 type ProcessedQueryResultColumnSource =
   | (Pick<QueryInitialColumnSource, 'is_initial_column'> &
-      Partial<QueryInitialColumnSource>)
+    Partial<QueryInitialColumnSource>)
   | QueryGeneratedColumnSource;
 
 export interface ProcessedQueryResultColumn extends CellColumnFabric {
@@ -156,27 +157,30 @@ export function getLinkFromColumn(
     name: toTableInfo.columns[toColumnId].name,
   };
   const columnMapEntries: [ColumnWithLink['id'], ColumnWithLink][] =
-    Object.entries(toTableInfo.columns).map(([id, columnInLinkedTable]) => {
-      const columnIdInLinkedTable = parseInt(id, 10);
-      return [
-        columnIdInLinkedTable,
-        {
-          id: columnIdInLinkedTable,
-          name: columnInLinkedTable.name,
-          tableName: toTableInfo.name,
-          type: columnInLinkedTable.type,
-          linksTo: getLinkFromColumn(
-            result,
-            columnIdInLinkedTable,
-            depth + 1,
-            link.join_path.join(','),
-          ),
-          jpPath: link.join_path,
-          producesMultipleResults: link.multiple_results,
-          metadata: null,
-        },
-      ];
-    });
+    Object.entries(toTableInfo.columns)
+      .map(([id, columnInLinkedTable]) => {
+        const columnIdInLinkedTable = normalizeColumnId(id);
+        if (columnIdInLinkedTable === undefined) return undefined;
+        return [
+          columnIdInLinkedTable,
+          {
+            id: columnIdInLinkedTable,
+            name: columnInLinkedTable.name,
+            tableName: toTableInfo.name,
+            type: columnInLinkedTable.type,
+            linksTo: getLinkFromColumn(
+              result,
+              columnIdInLinkedTable,
+              depth + 1,
+              link.join_path.join(','),
+            ),
+            jpPath: link.join_path,
+            producesMultipleResults: link.multiple_results,
+            metadata: null,
+          },
+        ] as [ColumnWithLink['id'], ColumnWithLink];
+      })
+      .filter((entry): entry is [ColumnWithLink['id'], ColumnWithLink] => entry !== undefined);
   return {
     ...toTable,
     linkedToColumn: toColumn,
@@ -230,14 +234,16 @@ function getColumnInformationMap({
   )) {
     const tableId = parseInt(tableIdKey, 10);
     for (const [columnIdKey, column] of Object.entries(table.columns)) {
-      const columnId = parseInt(columnIdKey, 10);
-      map.set(columnId, {
-        id: columnId,
-        name: column.name,
-        type: column.type,
-        tableId,
-        tableName: table.name,
-      });
+      const columnId = normalizeColumnId(columnIdKey);
+      if (columnId !== undefined) {
+        map.set(columnId, {
+          id: columnId,
+          name: column.name,
+          type: column.type,
+          tableId,
+          tableName: table.name,
+        });
+      }
     }
   }
   return map;
@@ -351,15 +357,15 @@ function processColumn(
   const abstractType = getAbstractTypeForDbType(column.type, column.metadata);
   const source: ProcessedQueryResultColumnSource = columnInfo.is_initial_column
     ? {
-        is_initial_column: true,
-        input_column_name: columnInfo.input_column_name,
-        input_table_name: columnInfo.input_table_name,
-        input_table_id: columnInfo.input_table_id,
-      }
+      is_initial_column: true,
+      input_column_name: columnInfo.input_column_name,
+      input_table_name: columnInfo.input_table_name,
+      input_table_id: columnInfo.input_table_id,
+    }
     : {
-        is_initial_column: false,
-        input_alias: columnInfo.input_alias,
-      };
+      is_initial_column: false,
+      input_alias: columnInfo.input_alias,
+    };
   return {
     id: column.alias,
     column,
@@ -428,7 +434,7 @@ export function speculateColumnMetaData({
     ([alias, displayName]) =>
       currentProcessedColumnsMetaData.has(alias) &&
       currentProcessedColumnsMetaData.get(alias)?.column.display_name !==
-        displayName,
+      displayName,
   );
   let updatedColumnsMetaData = currentProcessedColumnsMetaData;
   let isUpdateRequired =
@@ -484,10 +490,10 @@ export function speculateColumnMetaData({
               type_options:
                 aggregation.function === 'distinct_aggregate_to_array'
                   ? {
-                      item_type:
-                        updatedColumnsMetaData.get(aggregation.inputAlias)
-                          ?.column.type ?? 'unknown',
-                    }
+                    item_type:
+                      updatedColumnsMetaData.get(aggregation.inputAlias)
+                        ?.column.type ?? 'unknown',
+                  }
                   : null,
               is_initial_column: false,
               input_alias: aggregation.inputAlias,

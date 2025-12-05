@@ -6,6 +6,7 @@ TODO: Resolve code duplication between this file and RecordViewContent.svelte.
 <script lang="ts">
   import { _ } from 'svelte-i18n';
 
+  import { normalizeColumnId } from '@mathesar/utils/columnUtils';
   import { getDetailedRecordsErrors } from '@mathesar/api/rest/utils/recordUtils';
   import { api } from '@mathesar/api/rpc';
   import AppSecondaryHeader from '@mathesar/components/AppSecondaryHeader.svelte';
@@ -51,7 +52,9 @@ TODO: Resolve code duplication between this file and RecordViewContent.svelte.
   }
 
   function shouldPatchIncludeColumn(columnId: string) {
-    const processedColumn = $processedColumns.get(parseInt(columnId, 10));
+    const numericId = normalizeColumnId(columnId);
+    const processedColumn =
+      numericId !== undefined ? $processedColumns.get(numericId) : undefined;
     if (!processedColumn) return false;
 
     // Only patch columns that are not primary keys.

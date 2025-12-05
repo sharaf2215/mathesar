@@ -9,6 +9,7 @@ import {
 } from 'svelte/store';
 
 import { States } from '@mathesar/api/rest/utils/requestUtils';
+import { normalizeColumnId } from '@mathesar/utils/columnUtils';
 import type { RawColumnWithMetadata } from '@mathesar/api/rpc/columns';
 import type { FileManifest, ResultValue } from '@mathesar/api/rpc/records';
 import { parseFileReference } from '@mathesar/components/file-attachments/fileUtils';
@@ -57,7 +58,8 @@ function getSelectedCellData(
   const { rowId, columnId } = parseCellId(activeCellId);
   const row = selectableRowsMap.get(rowId);
   const value = row?.record[columnId];
-  const column = processedColumns.get(Number(columnId));
+  const numericColumnId = normalizeColumnId(columnId);
+  const column = numericColumnId !== undefined ? processedColumns.get(numericColumnId) : undefined;
   const recordSummary = defined(
     value,
     (v) => linkedRecordSummaries.get(columnId)?.get(String(v)),
@@ -334,8 +336,8 @@ export class TabularData {
   }
 
   getProcessedColumn(columnSelectionId: string): ProcessedColumn | undefined {
-    const numericColumnId = parseInt(columnSelectionId, 10);
-    return get(this.processedColumns).get(numericColumnId);
+    const numericColumnId = normalizeColumnId(columnSelectionId);
+    return numericColumnId !== undefined ? get(this.processedColumns).get(numericColumnId) : undefined;
   }
 
   getRecordIdFromRowId(rowId: string): ResultValue | undefined {
