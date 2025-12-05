@@ -1,3 +1,4 @@
+<script lang="ts">
   import { normalizeColumnId } from '@mathesar/utils/columnUtils';
   import { _ } from 'svelte-i18n';
   import { router } from 'tinro';
