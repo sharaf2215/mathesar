@@ -16,8 +16,8 @@ export default class RecordStore {
 
   fetchRequest = writable<RequestStatus | undefined>(undefined);
 
-  /** Keys are column ids */
-  fieldValues = new WritableMap<number, unknown>();
+  /** Keys are column ids (as strings) */
+  fieldValues = new WritableMap<string, unknown>();
 
   recordSummaries = new AssociatedCellData<string>();
 

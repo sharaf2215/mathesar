@@ -21,19 +21,26 @@ import type SheetSelection from '@mathesar/components/sheet/selection/SheetSelec
 import SheetSelectionStore from '@mathesar/components/sheet/selection/SheetSelectionStore';
 import type { Database } from '@mathesar/models/Database';
 import type { Table } from '@mathesar/models/Table';
+import AsyncRpcApiStore, {
+  type AsyncRpcApiStoreFromMethod,
+} from '@mathesar/stores/AsyncRpcApiStore';
 import type {
   ProcessedColumns,
   RecordRow,
   RecordSummariesForSheet,
 } from '@mathesar/stores/table-data';
 import { orderProcessedColumns } from '@mathesar/utils/tables';
-import { defined } from '@mathesar-component-library';
+import { ImmutableSet, defined } from '@mathesar-component-library';
 
 import type { AssociatedCellValuesForSheet } from '../AssociatedCellData';
 
 import { ColumnsDataStore } from './columns';
 import { ConstraintsDataStore } from './constraints';
 import { Display } from './display';
+import {
+  type JoinedColumn,
+  SimpleManyToManyJoinedColumn,
+} from './joinedColumns';
 import { Meta } from './meta';
 import {
   ProcessedColumn,
@@ -47,6 +54,8 @@ function getSelectedCellData(
   processedColumns: ProcessedColumns,
   linkedRecordSummaries: RecordSummariesForSheet,
   fileManifests: AssociatedCellValuesForSheet<FileManifest>,
+  joinedColumns: Map<string, JoinedColumn>,
+  joinedRecordSummaries: AssociatedCellValuesForSheet<string>,
 ): SelectedCellData {
   const { activeCellId } = selection;
   const selectionData = {
@@ -65,17 +74,21 @@ function getSelectedCellData(
     (v) => linkedRecordSummaries.get(columnId)?.get(String(v)),
   );
   const fileManifest = (() => {
-    if (!column?.column.metadata?.file_backend) return undefined;
+    if (!normalColumn?.column.metadata?.file_backend) return undefined;
     const fileReference = parseFileReference(value);
     if (!fileReference) return undefined;
-    return fileManifests.get(String(column.id))?.get(fileReference.mash);
+    return fileManifests.get(normalColumn.id)?.get(fileReference.mash);
   })();
+  const joinedColumn = joinedColumns.get(columnId);
+  const joinedRecordSummariesMap = joinedRecordSummaries.get(columnId);
+  const column = normalColumn ?? joinedColumn;
   return {
     activeCellData: column && {
       column,
       value,
       recordSummary,
       fileManifest,
+      joinedRecordSummariesMap,
     },
     selectionData,
   };
@@ -86,13 +99,13 @@ export interface TabularDataProps {
   table: Table;
   meta?: Meta;
   /**
-   * Keys are columns ids. Values are cell values.
+   * Keys are columns ids (as strings). Values are cell values.
    *
    * Setting an entry in this Map will apply a filter condition which the user
    * cannot see or remove. And the column used for the filter condition will be
    * removed from view.
    */
-  contextualFilters?: Map<number, number | string>;
+  contextualFilters?: Map<string, number | string>;
   hasEnhancedPrimaryKeyCell?: boolean;
   /**
    * When true, load the record summaries associated directly with each record
@@ -137,6 +150,12 @@ export class TabularData {
 
   canDeleteRecords: Readable<boolean>;
 
+  joinableTables: AsyncRpcApiStoreFromMethod<typeof api.tables.list_joinable>;
+
+  joinedColumns: Readable<Map<string, JoinedColumn>>;
+
+  allColumns: Readable<Map<string, ProcessedColumn | JoinedColumn>>;
+
   /**
    * In the future, this will be set dynamically in for publicly shared links
    * where user should not be able to (for example) open the record page for
@@ -147,13 +166,15 @@ export class TabularData {
   constructor(props: TabularDataProps) {
     this.database = props.database;
     const contextualFilters =
-      props.contextualFilters ?? new Map<number, string | number>();
+      props.contextualFilters ?? new Map<string, string | number>();
     this.table = props.table;
     this.meta = props.meta ?? new Meta();
     this.columnsDataStore = new ColumnsDataStore({
       database: props.database,
       table: this.table,
-      hiddenColumns: contextualFilters.keys(),
+      hiddenColumns: Array.from(contextualFilters.keys()).map((id) =>
+        Number(id),
+      ),
     });
     this.constraintsDataStore = new ConstraintsDataStore({
       database: props.database,
@@ -180,7 +201,7 @@ export class TabularData {
         orderProcessedColumns(
           new Map(
             columns.map((column, columnIndex) => [
-              column.id,
+              String(column.id),
               new ProcessedColumn({
                 tableOid: this.table.oid,
                 column,
@@ -230,17 +251,56 @@ export class TabularData {
         hasPrimaryKey && tableCurrentRolePrivileges.has('DELETE'),
     );
 
+    this.joinableTables = new AsyncRpcApiStore(api.tables.list_joinable, {
+      staticProps: {
+        database_id: this.database.id,
+        table_oid: this.table.oid,
+        max_depth: 2,
+      },
+    });
+    void this.joinableTables.run();
+
+    this.joinedColumns = derived(
+      [this.meta.joining, this.joinableTables],
+      ([joining, joinableTables]) => {
+        if (!joinableTables.resolvedValue) {
+          return new Map<string, JoinedColumn>();
+        }
+        const manyToManyJoinedColumns =
+          SimpleManyToManyJoinedColumn.createFromJoining(
+            joining,
+            joinableTables.resolvedValue,
+          );
+        return new Map(manyToManyJoinedColumns.map((col) => [col.id, col]));
+      },
+    );
+
+    this.allColumns = derived(
+      [this.processedColumns, this.joinedColumns],
+      ([processedColumns, joinedColumns]) =>
+        new Map<string, ProcessedColumn | JoinedColumn>([
+          ...processedColumns,
+          ...joinedColumns,
+        ]),
+    );
+
     const plane = derived(
       [
         this.recordsData.selectableRowsMap,
-        this.processedColumns,
+        this.allColumns,
         this.display.placeholderRowId,
+        this.joinedColumns,
       ],
-      ([selectableRowsMap, processedColumns, placeholderRowId]) => {
+      ([selectableRowsMap, allColumns, placeholderRowId, joinedColumns]) => {
         const rowIds = new Series([...selectableRowsMap.keys()]);
-        const columns = [...processedColumns.values()];
-        const columnIds = new Series(columns.map((c) => String(c.id)));
-        return new Plane(rowIds, columnIds, placeholderRowId);
+        const columnIds = new Series([...allColumns.keys()]);
+        const rangeRestrictedColumnIds = new ImmutableSet(joinedColumns.keys());
+        return new Plane(
+          rowIds,
+          columnIds,
+          placeholderRowId,
+          rangeRestrictedColumnIds,
+        );
       },
     );
     this.selection = new SheetSelectionStore(plane);
@@ -264,6 +324,8 @@ export class TabularData {
         this.processedColumns,
         this.recordsData.linkedRecordSummaries,
         this.recordsData.fileManifests,
+        this.joinedColumns,
+        this.recordsData.joinedRecordSummaries,
       ],
       (args) => getSelectedCellData(...args),
     );
@@ -275,16 +337,22 @@ export class TabularData {
       await this.recordsData.fetch();
     });
     this.columnsDataStore.on('columnDeleted', async (columnId) => {
-      this.meta.sorting.update((s) => s.without(columnId));
-      this.meta.grouping.update((g) => g.withoutColumns([columnId]));
-      this.meta.filtering.update((f) => f.withoutColumns([columnId]));
+      const stringColumnId = String(columnId);
+      this.meta.sorting.update((s) => s.without(stringColumnId));
+      this.meta.grouping.update((g) => g.withoutColumns([stringColumnId]));
+      this.meta.filtering.update((f) => f.withoutColumns([stringColumnId]));
       await this.constraintsDataStore.fetch();
+      void this.joinableTables.run();
     });
     this.columnsDataStore.on('columnPatched', async () => {
       await this.recordsData.fetch();
     });
     this.constraintsDataStore.on('constraintAdded', async () => {
       await this.recordsData.fetch();
+      void this.joinableTables.run();
+    });
+    this.constraintsDataStore.on('constraintRemoved', async () => {
+      void this.joinableTables.run();
     });
   }
 
@@ -293,6 +361,7 @@ export class TabularData {
       this.columnsDataStore.fetch(),
       this.recordsData.fetch(),
       this.constraintsDataStore.fetch(),
+      this.joinableTables.run(),
     ]);
   }
 
@@ -300,37 +369,43 @@ export class TabularData {
     extractedColumnIds: RawColumnWithMetadata['id'][],
     foreignKeyColumnId?: RawColumnWithMetadata['id'],
   ) {
+    const stringExtractedColumnIds = extractedColumnIds.map(String);
+    const stringForeignKeyColumnId = foreignKeyColumnId
+      ? String(foreignKeyColumnId)
+      : undefined;
     this.meta.sorting.update((s) => {
-      const firstExtractedColumnWithSort = extractedColumnIds.find((columnId) =>
-        s.has(columnId),
+      const firstExtractedColumnWithSort = stringExtractedColumnIds.find(
+        (columnId) => s.has(columnId),
       );
       if (
         firstExtractedColumnWithSort &&
-        foreignKeyColumnId &&
-        !s.has(foreignKeyColumnId)
+        stringForeignKeyColumnId &&
+        !s.has(stringForeignKeyColumnId)
       ) {
         const sortDirection = s.get(firstExtractedColumnWithSort);
         return s
-          .without(extractedColumnIds)
-          .with(foreignKeyColumnId, sortDirection ?? 'ASCENDING');
+          .without(stringExtractedColumnIds)
+          .with(stringForeignKeyColumnId, sortDirection ?? 'ASCENDING');
       }
-      return s.without(extractedColumnIds);
+      return s.without(stringExtractedColumnIds);
     });
-    this.meta.filtering.update((f) => f.withoutColumns(extractedColumnIds));
+    this.meta.filtering.update((f) =>
+      f.withoutColumns(stringExtractedColumnIds),
+    );
     this.meta.grouping.update((g) => {
-      const extractedColumnsHaveGrouping = extractedColumnIds.some((columnId) =>
-        g.hasColumn(columnId),
+      const extractedColumnsHaveGrouping = stringExtractedColumnIds.some(
+        (columnId) => g.hasColumn(columnId),
       );
       if (
         extractedColumnsHaveGrouping &&
-        foreignKeyColumnId &&
-        !g.hasColumn(foreignKeyColumnId)
+        stringForeignKeyColumnId &&
+        !g.hasColumn(stringForeignKeyColumnId)
       ) {
-        return g.withoutColumns(extractedColumnIds).withEntry({
-          columnId: foreignKeyColumnId,
+        return g.withoutColumns(stringExtractedColumnIds).withEntry({
+          columnId: stringForeignKeyColumnId,
         });
       }
-      return g.withoutColumns(extractedColumnIds);
+      return g.withoutColumns(stringExtractedColumnIds);
     });
     return this.refresh();
   }
@@ -354,6 +429,7 @@ export class TabularData {
     this.columnsDataStore.destroy();
     this.selection.destroy();
     this.meta.destroy();
+    this.joinableTables.cancel();
   }
 }
 
