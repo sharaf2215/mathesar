@@ -43,7 +43,9 @@
       value={column}
       onUpdate={(c) => onUpdate(c ? [c.id] : [])}
       allowEmpty
-    />
+    >
+      <span slot="empty">{$_('none')}</span>
+    </SelectProcessedColumn>
     {#if referentTable}
       <div class="delimiter">
         <FieldDelimiter />
